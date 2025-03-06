@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan to CAD Converter</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  <style>
+    .drop-area {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .drop-area:hover, .drop-area.dragover {
+      border-color: #3b82f6;
+      background-color: rgba(59, 130, 246, 0.05);
+    }
+    .progress-bar {
+      width: 100%;
+      background-color: #e5e7eb;
+      border-radius: 0.5rem;
+      height: 0.75rem;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background-color: #3b82f6;
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="container mx-auto px-4 py-8">
+    <header class="mb-10 text-center">
+      <h1 class="text-3xl font-bold text-gray-800">Scan to CAD Converter</h1>
+      <p class="text-gray-600 mt-2">Upload 3D scans or images to convert them to CAD models</p>
+    </header>
+
+    <main class="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6">
+      <div id="uploadSection">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">Upload Files</h2>
+        
+        <div id="dropArea" class="drop-area mb-4">
+          <div class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <p class="mb-1 font-medium">Drag & drop files here or click to browse</p>
+            <p class="text-sm">Supported formats: PLY, STL, OBJ, XYZ, PCD, JPG, PNG, TIFF</p>
+          </div>
+          <input type="file" id="fileInput" class="hidden" accept=".ply,.stl,.obj,.xyz,.pcd,.jpg,.png,.tiff">
+        </div>
+        
+        <div id="fileDetails" class="mb-6 hidden">
+          <div class="flex items-center p-3 bg-gray-50 rounded border">
+            <div class="mr-3">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div class="flex-grow">
+              <p id="fileName" class="text-sm font-medium text-gray-700 truncate"></p>
+              <p id="fileSize" class="text-xs text-gray-500"></p>
+            </div>
+            <button id="removeFile" class="ml-2 text-red-500 hover:text-red-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div id="uploadProgress" class="mb-6 hidden">
+          <p class="text-sm font-medium text-gray-700 mb-1">Uploading and processing...</p>
+          <div class="progress-bar">
+            <div id="progressBarFill" class="progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <p id="progressText" class="text-xs text-gray-500 mt-1">0%</p>
+        </div>
+        
+        <div class="flex justify-end">
+          <button id="uploadButton" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            Convert to CAD
+          </button>
+        </div>
+      </div>
+      
+      <div id="resultSection" class="hidden mt-8 pt-6 border-t border-gray-200">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">Conversion Result</h2>
+        
+        <div id="conversionSuccess" class="p-4 bg-green-50 border border-green-200 rounded-md mb-4 hidden">
+          <div class="flex">
+            <div class="flex-shrink-0">
+              <svg class="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <div class="ml-3">
+              <p class="text-sm font-medium text-green-800">Conversion completed successfully!</p>
+            </div>
+          </div>
+        </div>
+        
+        <div id="conversionError" class="p-4 bg-red-50 border border-red-200 rounded-md mb-4 hidden">
+          <div class="flex">
+            <div class="flex-shrink-0">
+              <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <div class="ml-3">
+              <p id="errorMessage" class="text-sm font-medium text-red-800">Error during conversion.</p>
+            </div>
+          </div>
+        </div>
+        
+        <div id="downloadSection" class="mb-6 hidden">
+          <div class="bg-gray-50 rounded-md p-4 border">
+            <h3 class="font-medium text-gray-700 mb-2">Download CAD Model</h3>
+            <p class="text-sm text-gray-600 mb-3">Your scan has been converted to STEP format, ready for use in CAD software.</p>
+            <div class="flex justify-between items-center">
+              <span id="outputFileName" class="text-sm text-gray-700"></span>
+              <a id="downloadLink" href="#" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                Download
+              </a>
+            </div>
+          </div>
+        </div>
+        
+        <div class="flex justify-end">
+          <button id="newConversionButton" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+            New Conversion
+          </button>
+        </div>
+      </div>
+    </main>
+    
+    <section class="max-w-3xl mx-auto mt-8">
+      <h2 class="text-xl font-semibold text-gray-700 mb-4">Previous Conversions</h2>
+      <div id="filesList" class="bg-white rounded-lg shadow-md divide-y divide-gray-200">
+        <!-- Files will be listed here -->
+        <div class="p-4 text-center text-gray-500">No previous conversions found</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const dropArea = document.getElementById('dropArea');
+      const fileInput = document.getElementById('fileInput');
+      const fileDetails = document.getElementById('fileDetails');
+      const fileName = document.getElementById('fileName');
+      const fileSize = document.getElementById('fileSize');
+      const removeFile = document.getElementById('removeFile');
+      const uploadButton = document.getElementById('uploadButton');
+      const uploadProgress = document.getElementById('uploadProgress');
+      const progressBarFill = document.getElementById('progressBarFill');
+      const progressText = document.getElementById('progressText');
+      const resultSection = document.getElementById('resultSection');
+      const conversionSuccess = document.getElementById('conversionSuccess');
+      const conversionError = document.getElementById('conversionError');
+      const errorMessage = document.getElementById('errorMessage');
+      const downloadSection = document.getElementById('downloadSection');
+      const outputFileName = document.getElementById('outputFileName');
+      const downloadLink = document.getElementById('downloadLink');
+      const newConversionButton = document.getElementById('newConversionButton');
+      const filesList = document.getElementById('filesList');
+      
+      let selectedFile = null;
+      
+      // Load previous conversions
+      fetchPreviousConversions();
+      
+      // Set up drag and drop events
+      dropArea.addEventListener('click', () => fileInput.click());
+      
+      dropArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropArea.classList.add('dragover');
+      });
+      
+      dropArea.addEventListener('dragleave', () => {
+        dropArea.classList.remove('dragover');
+      });
+      
+      dropArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropArea.classList.remove('dragover');
+        
+        if (e.dataTransfer.files.length) {
+          handleFile(e.dataTransfer.files[0]);
+        }
+      });
+      
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) {
+          handleFile(fileInput.files[0]);
+        }
+      });
+      
+      removeFile.addEventListener('click', () => {
+        resetUploadForm();
+      });
+      
+      uploadButton.addEventListener('click', uploadFile);
+      
+      newConversionButton.addEventListener('click', () => {
+        resetUploadForm();
+        resultSection.classList.add('hidden');
+      });
+      
+      function handleFile(file) {
+        // Check if file type is supported
+        const validTypes = ['.ply', '.stl', '.obj', '.xyz', '.pcd', '.jpg', '.png', '.tiff'];
+        const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+        
+        if (!validTypes.includes(fileExt)) {
+          alert('Invalid file type. Supported formats: PLY, STL, OBJ, XYZ, PCD, JPG, PNG, TIFF');
+          return;
+        }
+        
+        selectedFile = file;
+        
+        // Display file details
+        fileName.textContent = file.name;
+        fileSize.textContent = formatFileSize(file.size);
+        fileDetails.classList.remove('hidden');
+        uploadButton.disabled = false;
+      }
+      
+      function uploadFile() {
+        if (!selectedFile) return;
+        
+        const formData = new FormData();
+        formData.append('scanFile', selectedFile);
+        
+        // Show progress bar
+        uploadProgress.classList.remove('hidden');
+        uploadButton.disabled = true;
+        
+        // Simulate upload progress (in a real app, you'd use XHR's upload progress event)
+        let progress = 0;
+        const interval = setInterval(() => {
+          progress += 5;
+          if (progress > 95) {
+            clearInterval(interval);
+          }
+          updateProgress(progress);
+        }, 200);
+        
+        // Send the file to the server
+        fetch('http://localhost:3000/api/upload', {
+          method: 'POST',
+          body: formData
+        })
+        .then(response => {
+          clearInterval(interval);
+          updateProgress(100);
+          
+          if (!response.ok) {
+            return response.json().then(err => { throw err; });
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Show success
+          resultSection.classList.remove('hidden');
+          conversionSuccess.classList.remove('hidden');
+          downloadSection.classList.remove('hidden');
+          
+          // Set download link
+          outputFileName.textContent = data.outputFile;
+          downloadLink.href = data.downloadUrl;
+          downloadLink.download = data.outputFile;
+          
+          // Refresh file list
+          fetchPreviousConversions();
+        })
+        .catch(error => {
+          // Show error
+          resultSection.classList.remove('hidden');
+          conversionError.classList.remove('hidden');
+          errorMessage.textContent = error.details || 'Error processing file.';
+        });
+      }
+      
+      function updateProgress(value) {
+        progressBarFill.style.width = `${value}%`;
+        progressText.textContent = `${value}%`;
+      }
+      
+      function resetUploadForm() {
+        selectedFile = null;
+        fileInput.value = '';
+        fileDetails.classList.add('hidden');
+        uploadProgress.classList.add('hidden');
+        uploadButton.disabled = true;
+        progressBarFill.style.width = '0%';
+        progressText.textContent = '0%';
+        conversionSuccess.classList.add('hidden');
+        conversionError.classList.add('hidden');
+        downloadSection.classList.add('hidden');
+      }
+      
+      function fetchPreviousConversions() {
+        fetch('http://localhost:3000/api/files')
+          .then(response => response.json())
+          .then(data => {
+            if (data.files && data.files.length > 0) {
+              // Clear the list
+              filesList.innerHTML = '';
+              
+              // Add each file
+              data.files.forEach(file => {
+                const fileEl = document.createElement('div');
+                fileEl.className = 'p-4 flex justify-between items-center';
+                fileEl.innerHTML = `
+                  <div>
+                    <p class="font-medium text-gray-700">${file.filename}</p>
+                    <p class="text-sm text-gray-500">${new Date(file.createdAt).toLocaleString()}</p>
+                  </div>
+                  <a href="${file.url}" download="${file.filename}" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                    Download
+                  </a>
+                `;
+                filesList.appendChild(fileEl);
+              });
+            } else {
+              filesList.innerHTML = '<div class="p-4 text-center text-gray-500">No previous conversions found</div>';
+            }
+          })
+          .catch(error => {
+            console.error('Error fetching files:', error);
+            filesList.innerHTML = '<div class="p-4 text-center text-red-500">Error loading previous conversions</div>';
+          });
+      }
+      
+      function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+    });
+  </script>
+</body>
+</html>
