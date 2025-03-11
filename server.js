@@ -1,10 +1,17 @@
+const axios = require('axios');
+const { createWriteStream } = require('fs');
+const { promisify } = require('util');
+const stream = require('stream');
+const pipeline = promisify(stream.pipeline);
+const AdmZip = require('adm-zip');
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const cors = require('cors');
-
+require('dotenv').config();
+const Replicate = require('replicate');
 // Create Express app
 const app = express();
 const port = process.env.PORT || 3000;
@@ -105,6 +112,183 @@ app.get('/api/files', (req, res) => {
     }));
   
   res.json({ files });
+});
+
+// Add this new API endpoint to server.js
+// Replace the existing Dreamcraft3D integration with this updated version
+
+// Add to the top of server.js with other imports
+
+// Then update the Dreamcraft3D endpoint
+app.post('/api/dreamcraft', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image uploaded' });
+    }
+
+    // Check if it's an image file
+    const fileType = path.extname(req.file.originalname).toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(fileType)) {
+      return res.status(400).json({ 
+        error: 'Invalid file type. Only JPG, PNG, and WEBP images are supported for Dreamcraft3D.'
+      });
+    }
+
+    // Get the prompt from request body
+    const prompt = req.body.prompt || 'A detailed 3D model';
+    const numSteps = parseInt(req.body.numSteps || '800');
+
+    // Create a unique ID for this job
+    const jobId = `dreamcraft-${Date.now()}`;
+    const outputDir = path.join(__dirname, 'output');
+    const zipPath = path.join(outputDir, `${jobId}.zip`);
+    const modelDir = path.join(outputDir, jobId);
+    
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    
+    if (!fs.existsSync(modelDir)) {
+      fs.mkdirSync(modelDir, { recursive: true });
+    }
+
+    // Send initial status response
+    res.json({
+      message: 'Dreamcraft3D processing started',
+      jobId: jobId,
+      status: 'processing'
+    });
+
+    // Create prediction
+    console.log(`Starting Dreamcraft3D processing for job ${jobId}`);
+    
+    try {
+      // Write status file to indicate processing has started
+      fs.writeFileSync(
+        path.join(outputDir, `${jobId}-status.json`), 
+        JSON.stringify({
+          jobId: jobId,
+          status: 'processing',
+          started: new Date().toISOString()
+        })
+      );
+    
+      // Initialize the Replicate client
+      const replicate = new Replicate({
+        auth: process.env.REPLICATE_API_TOKEN,
+      });
+
+      // Read the file and convert to base64
+      const imageFile = fs.readFileSync(req.file.path);
+      const base64Image = imageFile.toString('base64');
+      const dataURI = `data:image/${fileType.substring(1)};base64,${base64Image}`;
+
+      console.log("Running Dreamcraft3D model with the image and prompt...");
+      
+      // Run the model using the official client
+      const model = "jd7h/dreamcraft3d";
+      const version = "cf19b73a3c605ffa94c29d95971cb89823a0faa5f2ba830a3e1579fa61577c30";
+      
+      // Output will be a buffer or URL to the ZIP file
+      const output = await replicate.run(
+        `${model}:${version}`,
+        {
+          input: {
+            image: dataURI,
+            prompt: prompt, 
+            num_steps: numSteps
+          }
+        }
+      );
+
+      console.log("Model run completed, downloading output...");
+      
+      // Check if output is a stream/buffer or a URL
+      if (typeof output === 'string' && output.startsWith('http')) {
+        // If it's a URL, download the file
+        const response = await axios({
+          method: 'GET',
+          url: output,
+          responseType: 'stream'
+        });
+        
+        await pipeline(response.data, fs.createWriteStream(zipPath));
+      } else {
+        // If it's a buffer, write it directly
+        fs.writeFileSync(zipPath, output);
+      }
+      
+      console.log(`Downloaded ZIP file to ${zipPath}`);
+
+      // Extract the ZIP file
+      const zip = new AdmZip(zipPath);
+      zip.extractAllTo(modelDir, true);
+      
+      // Find the OBJ file
+      const objFile = fs.readdirSync(modelDir).find(file => file.endsWith('.obj'));
+      
+      if (!objFile) {
+        throw new Error('No OBJ file found in the Dreamcraft3D output');
+      }
+
+      // Convert OBJ to STEP using our existing pipeline
+      const objPath = path.join(modelDir, objFile);
+      const stepPath = path.join(outputDir, `${jobId}.step`);
+      
+      const processingResult = await process3DFileToCAD(objPath, stepPath);
+      
+      // Update status in a job status file
+      const statusData = {
+        jobId: jobId,
+        status: 'completed',
+        objFile: objFile,
+        stepFile: `${jobId}.step`,
+        downloadUrl: `/output/${jobId}.step`,
+        processingDetails: processingResult,
+        completed: new Date().toISOString()
+      };
+      
+      fs.writeFileSync(
+        path.join(outputDir, `${jobId}-status.json`), 
+        JSON.stringify(statusData)
+      );
+      
+      console.log(`Processing completed for job ${jobId}`);
+      
+    } catch (error) {
+      console.error('Error in Dreamcraft3D processing:', error);
+      
+      // Write error status
+      fs.writeFileSync(
+        path.join(outputDir, `${jobId}-status.json`), 
+        JSON.stringify({
+          jobId: jobId,
+          status: 'failed',
+          error: error.message || 'Unknown error',
+          errorTime: new Date().toISOString()
+        })
+      );
+    }
+  } catch (error) {
+    console.error('Error processing Dreamcraft3D request:', error);
+    // If we haven't sent a response yet
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error processing request', details: error.message });
+    }
+  }
+});
+
+// Add this endpoint to check the status of a Dreamcraft3D job
+app.get('/api/dreamcraft/:jobId/status', (req, res) => {
+  const { jobId } = req.params;
+  const statusPath = path.join(__dirname, 'output', `${jobId}-status.json`);
+  
+  if (fs.existsSync(statusPath)) {
+    const statusData = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+    res.json(statusData);
+  } else {
+    res.json({ jobId, status: 'processing' });
+  }
 });
 
 // Processing functions
